@@ -1,9 +1,10 @@
 # Written by Curtis G. Northcutt
 
 # For pypi upload
-# 0, python setup.py check -r -s
+# 0. python setup.py check -r -s
+# 0. rm -rf dist build
 # 1. python setup.py sdist bdist_wheel --universal
-# 2. twine upload dist/*
+# 2. python3 -m twine upload dist/*
 
 from setuptools import setup, find_packages
 # To use a consistent encoding
@@ -24,6 +25,7 @@ setup(
     version=__version__,
     license='MIT',
     long_description=long_description,
+    long_description_content_type='text/x-rst',
     description = 'The Python package for cleaning and learning with noisy labels. Works for all noisy label distributions, datasets, and models.',
     url = 'https://github.com/cgnorthcutt/cleanlab',
     author = 'Curtis G. Northcutt',
@@ -72,5 +74,5 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['numpy>=1.11.3', 'scikit-learn>=0.18', 'scipy>=1.1.0'],
+    install_requires=['numpy>=1.11.3', 'scikit-learn>=0.18', 'scipy>=1.1.0', ],
 )

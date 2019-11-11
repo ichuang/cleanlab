@@ -1,14 +1,14 @@
 
 # coding: utf-8
 
-# In[14]:
+# In[1]:
 
 
 from __future__ import print_function, absolute_import, division, unicode_literals, with_statement
 from sklearn.model_selection import train_test_split
 from sklearn import datasets
 from sklearn.metrics import accuracy_score
-from sklearn.linear_model import LogisticRegression as logreg
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import ParameterGrid
 import numpy as np
 from cleanlab.classification import LearningWithNoisyLabels
@@ -17,16 +17,17 @@ from cleanlab.util import value_counts
 from cleanlab.latent_algebra import compute_inv_noise_matrix
 
 
-# ## **rankpruning** is the first practical *(works for any classifier, runs fast, robust to poor probability estimation)* algorithm for multiclass learning with noisy labels. Its comprised of components from the theory and algorithsm of **confident learning**. It's a Python class that wraps around any classifier as long as .fit(X, y, sample_weight), .predict(X), .predict_proba(X) are defined. Inspect the **cleanlab** package for documentation.
+# ## `cleanlab` can be used with any classifier and dataset for multiclass learning with noisy labels. Its comprised of components from the theory and algorithsm of **confident learning**. It's a Python class that wraps around any classifier as long as .fit(X, y, sample_weight), .predict(X), .predict_proba(X) are defined. Inspect the **cleanlab** package for documentation.
 # 
-# ## Here we show the performance of multiclass rankpruning wrapped around a sklearn LogisiticRegression classifier versus LogisticRegression without any help from confident learning on the Iris dataset.
+# ## Here we show the performance of cleanlab using sklearn's LogisiticRegression classifier versus LogisticRegression without any help from confident learning on the Iris dataset.
 
-# In[16]:
+# In[2]:
 
 
 # Seed for reproducibility
 seed = 2
-rp = LearningWithNoisyLabels(clf = logreg(), seed = seed)
+clf = LogisticRegression(solver = 'lbfgs', multi_class = 'auto', max_iter = 1000)
+rp = LearningWithNoisyLabels(clf = clf, seed = seed)
 np.random.seed(seed = seed)
 
 # Get iris dataset
@@ -37,7 +38,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
 
 
 try:
-    get_ipython().magic(u'matplotlib inline')
+    get_ipython().run_line_magic('matplotlib', 'inline')
     from matplotlib import pyplot as plt
     _ = plt.figure(figsize=(12,8))
     color_list = plt.cm.tab10(np.linspace(0, 1, 6))
@@ -54,7 +55,7 @@ except Exception as e:
     print("Plotting is only supported in an iPython interface.")
 
 
-# In[17]:
+# In[3]:
 
 
 # Generate lots of noise.
@@ -69,7 +70,7 @@ py = value_counts(y_train)
 s = generate_noisy_labels(y_train, noise_matrix)
 
 try:
-    get_ipython().magic(u'matplotlib inline')
+    get_ipython().run_line_magic('matplotlib', 'inline')
     from matplotlib import pyplot as plt
     _ = plt.figure(figsize=(15,8))
     color_list = plt.cm.tab10(np.linspace(0, 1, 6))
@@ -99,13 +100,11 @@ except Exception as e:
     print("Plotting is only supported in an iPython interface.")
 
 
-# In[19]:
-
-
+# In[4]:
 
 
 print('WITHOUT confident learning,', end=" ")
-clf = logreg()
+clf = LogisticRegression(solver='lbfgs', multi_class='auto', max_iter=1000)
 _ = clf.fit(X_train, s)
 pred = clf.predict(X_test)
 print("Iris dataset test accuracy:", round(accuracy_score(pred, y_test), 2))
@@ -114,7 +113,7 @@ print("\nNow we show the improvement using confident learning to characterize th
 print("and learn on the data that is (with high confidence) labeled correctly.")
 print()
 print('WITH confident learning (noise matrix given),', end=" ")
-_ = rp.fit(X_train, s, noise_matrix = noise_matrix)
+_ = rp.fit(X_train, s, noise_matrix=noise_matrix)
 pred = rp.predict(X_test)
 print("Iris dataset test accuracy:", round(accuracy_score(pred, y_test),2))
 
@@ -124,25 +123,26 @@ pred = rp.predict(X_test)
 print("Iris dataset test accuracy:", round(accuracy_score(pred, y_test),2))
 
 print('WITH confident learning (using latent noise matrix estimation),', end=" ")
-rp = LearningWithNoisyLabels(clf = logreg(), seed = seed, prune_count_method='inverse_nm_dot_s')
+clf = LogisticRegression(solver='lbfgs', multi_class='auto', max_iter=1000)
+rp = LearningWithNoisyLabels(clf = clf, seed = seed)
 _ = rp.fit(X_train, s)
 pred = rp.predict(X_test)
 print("Iris dataset test accuracy:", round(accuracy_score(pred, y_test),2))
 
 print('WITH confident learning (using calibrated confident joint),', end=" ")
-rp = LearningWithNoisyLabels(clf = logreg(), seed = seed, prune_count_method='calibrate_confident_joint')
+clf = LogisticRegression(solver='lbfgs', multi_class='auto', max_iter=1000)
+rp = LearningWithNoisyLabels(clf=clf, seed=seed)
 _ = rp.fit(X_train, s)
 pred = rp.predict(X_test)
 print("Iris dataset test accuracy:", round(accuracy_score(pred, y_test),2))
 
 
-# ## The **rankpruning** algorithm's fit function has a few hyper-parameters. Although the default settings tend to work well, here we show the performance of confident learning across varying parameter settings. To learn more about the hyper-parameter settings, inspect ```cleanlab/pruning.py```.
+# ## Performance of confident learning across varying settings. To learn more about the hyper-parameter settings, inspect ```cleanlab/pruning.py```.
 
-# In[30]:
+# In[5]:
 
 
 param_grid = {
-    "prune_count_method": ["calibrate_confident_joint", "inverse_nm_dot_s"],
     "prune_method": ["prune_by_noise_rate", "prune_by_class", "both"],
     "converge_latent_estimates": [True, False],
 }
@@ -151,7 +151,8 @@ param_grid = {
 params = ParameterGrid(param_grid)
 scores = []
 for param in params:
-    rp = LearningWithNoisyLabels(clf = logreg(), **param)
+    clf = LogisticRegression(solver = 'lbfgs', multi_class = 'auto', max_iter = 1000)
+    rp = LearningWithNoisyLabels(clf = clf, **param)
     _ = rp.fit(X_train, s) # s is the noisy y_train labels
     scores.append(accuracy_score(rp.predict(X_test), y_test))
 
@@ -163,10 +164,4 @@ for i in np.argsort(scores)[::-1]:
         round(scores[i], 2),
         "\n"
     )
-
-
-# In[ ]:
-
-
-
 

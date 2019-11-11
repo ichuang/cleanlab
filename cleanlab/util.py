@@ -5,14 +5,11 @@
 # 
 # #### Contains ancillarly helper functions used throughout this package.
 
-# In[ ]:
-
-
-from __future__ import print_function, absolute_import, division, unicode_literals, with_statement
+from __future__ import (
+    print_function, absolute_import, division, unicode_literals, with_statement
+)
 import numpy as np
-
-
-# In[ ]:
+from sklearn.utils import check_X_y
 
 
 def assert_inputs_are_valid(X, s, psx = None): # pragma: no cover
@@ -30,8 +27,8 @@ def assert_inputs_are_valid(X, s, psx = None): # pragma: no cover
 
     if not isinstance(s, (np.ndarray, np.generic)):
         raise TypeError("s should be a numpy array.")
-    if not isinstance(X, (np.ndarray, np.generic)):
-        raise TypeError("X should be a numpy array.")
+    # Allow sparse matrices and check that they are valid format.
+    check_X_y(X, s, accept_sparse=True, dtype=None, force_all_finite=False, ensure_2d=False)
     
     
 def remove_noise_from_class(noise_matrix, class_without_noise):
@@ -68,9 +65,6 @@ def remove_noise_from_class(noise_matrix, class_without_noise):
         x[i][i] = 1 - float(np.sum(x[:,i]) - x[i][i])
 
     return x
-
-
-# In[ ]:
 
 
 def clip_noise_rates(noise_matrix):
@@ -156,9 +150,6 @@ def clip_values(x, low = 0.0, high = 1.0, new_sum = None):
     return x
 
 
-# In[ ]:
-
-
 def value_counts(x):
     '''Returns an np.array of shape (K, 1), with the
     value counts for every unique item in the labels list/array, 
@@ -180,14 +171,69 @@ def value_counts(x):
         A list of discrete objects, like lists or strings, for
         example, class labels 'y' when training a classifier.
         e.g. ["dog","dog","cat"] or [1,2,0,1,1,0,2]'''
-    
-    if type(x[0]) is int and (np.array(x) >= 0).all():
-        return np.bincount(x)
-    else:
-        return np.unique(x, return_counts=True)[1] 
+    try:
+        return x.value_counts()
+    except:
+        if type(x[0]) is int and (np.array(x) >= 0).all():
+            return np.bincount(x)
+        else:
+            return np.unique(x, return_counts=True)[1]
 
 
-# In[ ]:
+def round_preserving_sum(iterable):
+    """Rounds an iterable of floats while retaining the original summed value.
+    Function parameters should be documented in the ``Args`` section. The name
+    of each parameter is required. The type and description of each parameter
+    is optional, but should be included if not obvious.
+
+    The while loop in this code was adapted from:
+    https://github.com/cgdeboer/iteround
+
+    Parameters
+    -----------
+    iterable : list<float> or np.array<float>
+        An iterable of floats
+
+    Returns
+    -------
+    iterable : list<int> or np.array<int>
+        The iterable rounded to int, preserving sum."""
+
+    floats = np.asarray(iterable, dtype=float)
+    ints = floats.round()
+    orig_sum = np.sum(floats).round()
+    int_sum = np.sum(ints).round()
+    # Adjust the integers so that they sum to orig_sum
+    while abs(int_sum - orig_sum) > 1e-6:
+        diff = np.round(orig_sum - int_sum)
+        increment = -1 if int(diff < 0.) else 1
+        changes = min(int(abs(diff)), len(iterable))
+        # Orders indices by difference. Increments # of changes.
+        indices = np.argsort(floats - ints)[::-increment][:changes]
+        for i in indices:
+            ints[i] = ints[i] + increment
+        int_sum = np.sum(ints).round()
+    return ints.astype(int)
+
+
+def round_preserving_row_totals(confident_joint):
+    '''Rounds confident_joint cj to type int
+    while preserving the totals of reach row.
+    Assumes that cj is a 2D np.array of type float.
+
+    Parameters:
+    confident_joint : 2D np.array<float> of shape (K, K)
+        See compute_confident_joint docstring for details.
+
+    Returns:
+    confident_joint : 2D np.array<int> of shape (K,K)
+        Rounded to int while preserving row totals.'''
+
+    return np.apply_along_axis(
+        func1d=round_preserving_sum,
+        axis=1,
+        arr=confident_joint,
+    ).astype(int)
 
 
 def estimate_pu_f1(s, prob_s_eq_1):
@@ -213,9 +259,10 @@ def estimate_pu_f1(s, prob_s_eq_1):
     return recall ** 2 / (2.0 * frac_positive) if frac_positive != 0 else np.nan
 
 
-def confusion_matrix(y, s):
-    '''Implements a confusion matrix assuming y as true classes
-    and s as noisy (or sometimes predicted) classes.
+def confusion_matrix(true, pred):
+    '''Implements a confusion matrix for true labels
+    and predicted labels. true and pred MUST BE the same length
+    and have the same distinct set of class labels represtented.
 
     Results are identical (and similar computation time) to: 
         "sklearn.metrics.confusion_matrix"
@@ -225,37 +272,40 @@ def confusion_matrix(y, s):
     Parameters
     ----------
     y : np.array 1d
-      Contains non-negative integers 0, 1, 2... Labels are consecutive.
-      For example y = [0, 1, 1, 2] is okay.
-      But y = [0, 1, 3, 1] is BAD because there is no "2" class.
+      Contains labels.
+      Assumes s and y contains the same distinct set of labels.
       
     s : np.array 1d
-      Same as y'''
+      Contains labels.
+      Assumes s and y contains the same distinct set of labels.
+  
+    Returns
+    -------
+    confusion_matrix : np.array (2D)
+      matrix of confusion counts with true on rows and pred on columns.'''
+
+    assert(len(true) == len(pred))
+    true_classes = np.unique(true)
+    pred_classes = np.unique(pred)
+    K_true = len(true_classes) # Number of classes in true
+    K_pred = len(pred_classes) # Number of classes in pred    
+    map_true = dict(zip(true_classes, range(K_true)))    
+    map_pred = dict(zip(pred_classes, range(K_pred)))
     
-    y_classes = np.unique(y)
-    s_classes = np.unique(s)
-    K_y = len(y_classes) # Number of classes in y
-    K_s = len(s_classes) # Number of classes in s    
-    mapy = dict(zip(y_classes, range(K_y)))    
-    maps = dict(zip(s_classes, range(K_s)))
-    
-    result = np.zeros((K_y, K_s))
+    result = np.zeros((K_true, K_pred))
+    for i in range(len(true)):
+        result[map_true[true[i]]][map_pred[pred[i]]] += 1
 
-    for i in range(len(y)):
-        result[mapy[y[i]]][maps[s[i]]] += 1
-
-    return result.astype(float) / result.sum(axis=0)  
-
-
-# In[ ]:
+    return result
 
 
 def print_square_matrix(
     matrix, 
-    left_name = 's', 
-    top_name = 'y', 
-    title = " A square matrix",
-    short_title = 's,y',
+    left_name='s', 
+    top_name='y', 
+    title=' A square matrix',
+    short_title='s,y',
+    round_places=2,
 ):
     '''Pretty prints a matrix. 
     
@@ -270,7 +320,9 @@ def print_square_matrix(
     title : str
         Prints this string above the printed square matrix.
     short_title : str
-        A short title (6 characters or less) like P(s|y) or P(s,y).'''
+        A short title (6 characters or less) like P(s|y) or P(s,y).
+    round_places : int
+        Number of decimals to show for each matrix value.'''
     
     short_title = short_title[:6]    
     K = len(matrix) # Number of classes
@@ -282,38 +334,42 @@ def print_square_matrix(
     print(" "+short_title+"".join(['\t'+top_name+'='+str(i) for i in range(K)]))
     print('\t---'*K)
     for i in range(K):
-        print(left_name+"="+str(i)+" |\t"+"\t".join([str(z) for z in list(matrix.round(2)[i,:])]))
-    print("\tTrace(matrix) =", np.round(np.trace(matrix), 2))
+        entry = "\t".join([str(z) for z in list(matrix.round(round_places)[i,:])])
+        print(left_name + "=" + str(i) + " |\t" + entry)
+    print("\tTrace(matrix) =", np.round(np.trace(matrix), round_places))
     print()  
-    
-def print_noise_matrix(noise_matrix):
+
+
+def print_noise_matrix(noise_matrix, round_places=2):
     '''Pretty prints the noise matrix.'''
     print_square_matrix(
         noise_matrix,
         title=' Noise Matrix (aka Noisy Channel) P(s|y)', 
-        short_title = "p(s|y)",
+        short_title='p(s|y)',
+        round_places=round_places,
     )
-    
-def print_inverse_noise_matrix(inverse_noise_matrix):
+
+
+def print_inverse_noise_matrix(inverse_noise_matrix, round_places=2):
     '''Pretty prints the inverse noise matrix.'''
     print_square_matrix(
         inverse_noise_matrix, 
-        left_name = 'y', 
-        top_name = 's', 
+        left_name='y', 
+        top_name='s', 
         title=' Inverse Noise Matrix P(y|s)',
-        short_title = "p(y|s)",
+        short_title='p(y|s)',
+        round_places=round_places,
     )
-    
-def print_joint_matrix(joint_matrix):
+
+
+def print_joint_matrix(joint_matrix, round_places=2):
     '''Pretty prints the joint label noise matrix.'''
     print_square_matrix(
         joint_matrix,
         title=' Joint Label Noise Distribution Matrix P(s,y)',
-        short_title = "p(s,y)",
+        short_title='p(s,y)',
+        round_places=round_places,
     )
-
-
-# In[ ]:
 
 
 def _python_version_is_compatible(
@@ -353,6 +409,7 @@ class VersionWarning(object):
         self.warning_str = warning_str
         self.warning_already_issued = False
         self.list_of_compatible_versions = list_of_compatible_versions
+        
     def is_compatible(self):
         compatible = _python_version_is_compatible(
             self.warning_str,
@@ -362,4 +419,3 @@ class VersionWarning(object):
         if not compatible:
             self.warning_already_issued = True
         return compatible
-

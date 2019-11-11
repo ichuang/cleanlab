@@ -5,16 +5,10 @@
 # 
 # #### Contains methods for generating valid (learning with noise is possible) noise matrices, generating noisy labels given a noise matrix, generating valid noise matrices with a specific trace value, and more.
 
-# In[ ]:
-
-
 from __future__ import print_function, absolute_import, division, unicode_literals, with_statement
 import numpy as np
 from cleanlab.util import value_counts, confusion_matrix
 import warnings
-
-
-# In[ ]:
 
 
 def noise_matrix_is_valid(noise_matrix, py, verbose = False):
@@ -65,12 +59,27 @@ def noise_matrix_is_valid(noise_matrix, py, verbose = False):
     return True
 
 
-# In[ ]:
-
-
 def generate_noisy_labels(y, noise_matrix, verbose=False):  
     '''Generates noisy labels s (shape (N, 1)) from perfect labels y,
     'exactly' yielding the provided noise_matrix between s and y.
+    
+    Below we provide a for loop implementation of what this function does.
+    We do not use this implementation as it is not a fast algorithm, but
+    it explains as Python pseudocode what is happening in this function.    
+
+    # Generate s
+    count_joint = (noise_matrix * py * len(y)).round().astype(int)
+    s = np.array(y)
+    for k_s in range(K):
+        for k_y in range(K):
+            if k_s != k_y:
+                idx_flip = np.where((s==k_y)&(y==k_y))[0]
+                if len(idx_flip): # pragma: no cover
+                    s[np.random.choice(
+                        idx_flip, 
+                        count_joint[k_s][k_y], 
+                        replace=False,
+                    )] = k_s
 
     Parameters
     ----------
@@ -91,29 +100,34 @@ def generate_noisy_labels(y, noise_matrix, verbose=False):
     K = len(noise_matrix)
 
     # Compute p(y=k)
-    py = value_counts(y) / float(len(y))
-
+    py = value_counts(y) / float(len(y))    
+    
+    # Counts of pairs (s, y)
+    count_joint = (noise_matrix * py * len(y)).astype(int) 
+    # Remove diagonal entries as they do not involve flipping of labels.
+    np.fill_diagonal(count_joint, 0)
+    
     # Generate s
-    count_joint = (noise_matrix * py * len(y)).round().astype(int) # count(s and y)
     s = np.array(y)
-    for k_s in range(K):
-        for k_y in range(K):
-            if k_s != k_y:
-                idx_flip = np.where((s==k_y)&(y==k_y))[0]
-                if len(idx_flip): # pragma: no cover
-                    s[np.random.choice(idx_flip, count_joint[k_s][k_y], replace=False)] = k_s
+    for k in range(K): # Iterate over true class y == k
+        # Get the noisey s labels that have non-zero counts
+        s_labels = np.where(count_joint[:, k] != 0)[0]
+        # Find out how many of each noisy s label we need to flip to
+        s_counts = count_joint[s_labels, k] 
+        # Create a list of the new noisy labels
+        noise = [s_labels[i] for i, c in enumerate(s_counts) for z in range(c)]
+        # Randomly choose y labels for class k and set them to the noisy labels.
+        idx_flip = np.where((s==k)&(y==k))[0]
+        if len(idx_flip) and len(noise) and len(idx_flip) >= len(noise): # pragma: no cover
+            s[np.random.choice(idx_flip, len(noise), replace=False)] = noise    
 
-    # Compute the actual noise matrix induced by s
-    counts = confusion_matrix(s, y).astype(float)
-    new_noise_matrix = counts / counts.sum(axis=0)
+    # # Validate that s indeed produces the correct noise_matrix (or close to it)
+    # # Compute the actual noise matrix induced by s
+    # counts = confusion_matrix(s, y).astype(float)
+    # new_noise_matrix = counts / counts.sum(axis=0)
+    # assert(np.linalg.norm(noise_matrix - new_noise_matrix) <= 2)
 
-    # Validate that s indeed produces the correct noise_matrix (or close to it)
-    assert(np.linalg.norm(noise_matrix - new_noise_matrix) <= 2)
-
-    return s  
-
-
-# In[ ]:
+    return s
 
 
 def generate_noise_matrix_from_trace(
@@ -127,6 +141,7 @@ def generate_noise_matrix_from_trace(
     py = None,
     frac_zero_noise_rates = 0.,
     seed = 0,
+    max_iter = 10000,
 ): 
     '''Generates a K x K noise matrix P(s=k_s|y=k_y) with trace
     as the np.mean(np.diagonal(noise_matrix)).
@@ -169,6 +184,12 @@ def generate_noise_matrix_from_trace(
       Instead, when this happens we only guarantee to produce a noise matrix with
       frac_zero_noise_rates **or higher**. The opposite occurs with a small trace.
 
+    seed : int
+      Seeds the random number generator for numpy.
+
+    max_iter : int (default: 10000)
+      The max number of tries to produce a valid matrix before returning False.
+
     Output
     ------
     np.array (shape (K, K)) 
@@ -179,7 +200,7 @@ def generate_noise_matrix_from_trace(
 
 
     if valid_noise_matrix and trace <= 1:
-        raise ValueError("trace > 1 is necessary for a" +
+        raise ValueError("trace = {}. trace > 1 is necessary for a".format(trace) +
               " valid noise matrix to be returned (valid_noise_matrix == True)")
     
     if valid_noise_matrix and py is None and K > 2:
@@ -188,6 +209,9 @@ def generate_noise_matrix_from_trace(
         
     if K <= 1:
         raise ValueError('K must be >= 2, but K = {}.'.format(K))
+        
+    if max_iter < 1:
+        return False
         
     np.random.seed(seed)
     
@@ -209,7 +233,7 @@ def generate_noise_matrix_from_trace(
             return noise_matrix  
         
     # K > 2  
-    while True:           
+    for z in range(max_iter):           
         noise_matrix = np.zeros(shape=(K, K))
         
         # Randomly generate noise_matrix diagonal.
@@ -360,9 +384,7 @@ def randomly_distribute_N_balls_into_K_bins(
     return arr.astype(int)
 
 
-# #### Deprecated functions below
-
-# In[ ]:
+# Deprecated functions below
 
 
 def generate_noise_matrix(
@@ -375,7 +397,7 @@ def generate_noise_matrix(
 
     Generates a noise matrix by randomly assigning noise rates
     up to max_noise_rate, then setting noise rates to
-    zero until P(s!=k|s=k) < 1 is satisified. Additionally,
+    zero until P(s!=k|s=k) < 1 is satisfied. Additionally,
     frac_zero_noise_rates are set to zero.
 
     Parameters
@@ -442,4 +464,3 @@ def generate_noise_matrix(
         print("Average trace of noise matrix is", np.trace(noise_matrix) / float(K))
     
     return noise_matrix
-
